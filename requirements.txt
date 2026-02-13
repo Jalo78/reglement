@@ -2,3 +2,4 @@ streamlit
 google-generativeai
 gTTS
 PyPDF2
+pandas
