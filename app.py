@@ -6,7 +6,6 @@ from gtts import gTTS
 import PyPDF2
 import json
 import tempfile
-import re # Nodig voor slimme tekstvervanging
 
 # ---------------------------------------------------------
 # CONFIGURATIE & VEILIGHEID
@@ -49,21 +48,13 @@ def laad_pdf_automatisch():
         return None
 
 def repareer_uitspraak(tekst, taal):
-    """
-    Deze functie repareert specifieke woorden die Google verkeerd uitspreekt.
-    Dit is veiliger dan de AI het te laten doen.
-    """
+    """Repareert uitspraakfouten (zoals 'les' -> 'less')"""
     if taal == 'nl':
-        # We maken van 'les' -> 'less' (zodat hij niet 'lee' zegt)
-        # We gebruiken 'replace' voor de zekerheid op hele woorden
+        # Vervang 'les' door 'less' zodat het niet als 'lee' klinkt
         tekst = tekst.replace(" les ", " less ")
         tekst = tekst.replace(" les.", " less.")
         tekst = tekst.replace(" les,", " less,")
         tekst = tekst.replace(" Les ", " Less ")
-        
-        # Voeg hier later eventueel andere woorden toe
-        # tekst = tekst.replace(" wifi ", " waaifaai ") 
-        
     return tekst
 
 # ---------------------------------------------------------
@@ -87,10 +78,9 @@ else:
     if audio_opname:
         with st.spinner("Even luisteren en vertalen... 🧠"):
             try:
-                # Model aanroepen
                 model = genai.GenerativeModel("gemini-2.5-flash")
                 
-                # De Prompt - TERUG NAAR SIMPEL
+                # --- AANGEPASTE PROMPT (Vriendelijker & Vollediger) ---
                 prompt = f"""
                 CONTEXT (BRONTEKST):
                 {reglement_tekst}
@@ -103,13 +93,14 @@ else:
                 
                 BELANGRIJKE REGELS:
                 - Antwoord in de taal van de vraag.
-                - Houd het kort en simpel (Niveau A1).
-                - Geen rare tekens, gewoon normale zinnen.
+                - Geef een VOLLEDIG antwoord. Niet te kortaf.
+                - Leg het vriendelijk uit in 2 of 3 zinnen.
+                - Gebruik WEL simpele woorden (Niveau A2), maar maak er een lopend verhaal van.
                 
                 OUTPUT FORMAAT (JSON):
                 {{
                     "taal_code": "nl",
-                    "antwoord": "Hier het antwoord in normale spelling."
+                    "antwoord": "Hier het volledige, vriendelijke antwoord."
                 }}
                 """
 
@@ -132,8 +123,7 @@ else:
                 # 3. Resultaat Tonen
                 st.success(f"🗣️ **Antwoord:** {antwoord}")
                 
-                # --- DE REPARATIE ---
-                # Hier roepen we de functie aan die 'les' vervangt door 'less'
+                # --- DE UITSPRAAK REPARATIE ---
                 spraak_tekst = repareer_uitspraak(antwoord, taal)
                 
                 # 4. Audio Genereren en Afspelen
@@ -142,7 +132,11 @@ else:
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
                     tts.save(fp.name)
                     st.audio(fp.name, format="audio/mp3", autoplay=True)
+                
+                # 5. KNOP OM OPNIEUW TE BEGINNEN
+                st.write("") # Witregel
+                if st.button("🔄 Stel een nieuwe vraag"):
+                    st.rerun()
                     
             except Exception as e:
-                # Laat de echte fout zien als het misgaat
                 st.error(f"Technische foutmelding: {e}")
