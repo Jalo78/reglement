@@ -25,6 +25,14 @@ else:
     st.error("⛔ CRITICALE FOUT: Geen API-sleutel gevonden in Secrets.")
     st.stop()
 
+# --- SESSIE STATUS (Het geheugen voor de reset-knop) ---
+if 'vraag_teller' not in st.session_state:
+    st.session_state.vraag_teller = 0
+
+def reset_app():
+    """Deze functie wordt uitgevoerd als je op de reset knop drukt"""
+    st.session_state.vraag_teller += 1
+
 # ---------------------------------------------------------
 # FUNCTIES
 # ---------------------------------------------------------
@@ -72,15 +80,19 @@ if reglement_tekst is None:
 else:
     st.divider()
     
-    # 2. De Audio Knop
-    audio_opname = st.audio_input("Start opname 🎤")
+    # 2. De Audio Knop (Met dynamische key!)
+    # Door de 'key' te veranderen (vraag_teller), wordt de widget leeggemaakt.
+    audio_opname = st.audio_input(
+        "Start opname 🎤", 
+        key=f"audio_recorder_{st.session_state.vraag_teller}"
+    )
 
     if audio_opname:
         with st.spinner("Even luisteren en vertalen... 🧠"):
             try:
                 model = genai.GenerativeModel("gemini-2.5-flash")
                 
-                # --- AANGEPASTE PROMPT (Vriendelijker & Vollediger) ---
+                # --- PROMPT (Volledig & Vriendelijk) ---
                 prompt = f"""
                 CONTEXT (BRONTEKST):
                 {reglement_tekst}
@@ -95,7 +107,7 @@ else:
                 - Antwoord in de taal van de vraag.
                 - Geef een VOLLEDIG antwoord. Niet te kortaf.
                 - Leg het vriendelijk uit in 2 of 3 zinnen.
-                - Gebruik WEL simpele woorden (Niveau A2), maar maak er een lopend verhaal van.
+                - Gebruik simpele woorden (Niveau A2).
                 
                 OUTPUT FORMAAT (JSON):
                 {{
@@ -135,8 +147,8 @@ else:
                 
                 # 5. KNOP OM OPNIEUW TE BEGINNEN
                 st.write("") # Witregel
-                if st.button("🔄 Stel een nieuwe vraag"):
-                    st.rerun()
+                # Als je hierop drukt, wordt 'reset_app' uitgevoerd, verhoogt de teller, en reset de microfoon.
+                st.button("🔄 Stel een nieuwe vraag", on_click=reset_app)
                     
             except Exception as e:
                 st.error(f"Technische foutmelding: {e}")
