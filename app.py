@@ -59,25 +59,36 @@ def repareer_uitspraak(tekst, taal):
         tekst = tekst.replace(" les,", " less,").replace(" Les ", " Less ")
     return tekst
 
-def log_gemiste_vraag(vraag_tekst, taal):
-    """Schrijft de vraag weg naar een CSV bestand"""
+def log_gemiste_vraag(vraag_orig, vraag_nl, taal):
+    """Schrijft de vraag + vertaling weg naar CSV"""
     bestand = "gemiste_vragen.csv"
+    
+    # Hier maken we de rij met 4 kolommen
     nieuwe_data = pd.DataFrame([{
         "Datum": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "Taal": taal,
-        "Vraag": vraag_tekst
+        "Originele Vraag": vraag_orig,
+        "Vraag in NL": vraag_nl
     }])
     
     if os.path.exists(bestand):
-        nieuwe_data.to_csv(bestand, mode='a', header=False, index=False)
+        # We voegen toe aan bestaand bestand
+        # Let op: als het oude bestand minder kolommen heeft, geeft dit een fout.
+        # Daarom best eerst wissen.
+        try:
+            nieuwe_data.to_csv(bestand, mode='a', header=False, index=False)
+        except:
+            # Als het misgaat (bijv oude versie), overschrijven we het
+            nieuwe_data.to_csv(bestand, mode='w', header=True, index=False)
     else:
+        # Nieuw bestand maken
         nieuwe_data.to_csv(bestand, mode='w', header=True, index=False)
 
 # ---------------------------------------------------------
 # DE APPLICATIE
 # ---------------------------------------------------------
 
-# --- ZIJBALK (BEVEILIGD) ---
+# --- ZIJBALK (DOCENTEN) ---
 with st.sidebar:
     st.header("🔐 Docenten Login")
     invoer_ww = st.text_input("Wachtwoord", type="password")
@@ -88,25 +99,28 @@ with st.sidebar:
         st.subheader("📋 Logboek Gemiste Vragen")
         
         if os.path.exists("gemiste_vragen.csv"):
-            df = pd.read_csv("gemiste_vragen.csv")
-            st.dataframe(df) # Toon tabel
-            
-            # Download knop
-            csv_data = df.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                "📥 Download Excel (CSV)",
-                csv_data,
-                "gemiste_vragen.csv",
-                "text/csv"
-            )
-            
-            if st.button("🗑️ Wis logboek"):
-                os.remove("gemiste_vragen.csv")
-                st.rerun()
+            try:
+                df = pd.read_csv("gemiste_vragen.csv")
+                st.dataframe(df) # Toon tabel
+                
+                csv_data = df.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    "📥 Download Excel (CSV)",
+                    csv_data,
+                    "gemiste_vragen.csv",
+                    "text/csv"
+                )
+                
+                if st.button("🗑️ Wis logboek"):
+                    os.remove("gemiste_vragen.csv")
+                    st.rerun()
+            except:
+                st.error("Het logboek is beschadigd of verouderd.")
+                if st.button("🗑️ Reset logboek"):
+                    os.remove("gemiste_vragen.csv")
+                    st.rerun()
         else:
             st.info("Nog geen gemiste vragen.")
-    elif invoer_ww:
-        st.error("Fout wachtwoord")
 
 # --- HOOFDSCHERM ---
 st.title("🏫 Vraag het aan het Centrum")
@@ -129,16 +143,17 @@ else:
             try:
                 model = genai.GenerativeModel("gemini-2.5-flash")
                 
-                # --- PROMPT ---
+                # --- AANGEPASTE PROMPT MET VERTALING ---
                 prompt = f"""
                 CONTEXT (BRONTEKST):
                 {reglement_tekst}
                 
                 JOUW TAAK:
                 1. Luister naar de audio en schrijf de vraag uit (transcriptie).
-                2. Zoek het antwoord in de brontekst.
-                3. Bepaal: Staat het antwoord in de tekst? (Ja/Nee).
-                4. Vertaal het antwoord naar de taal van de spreker.
+                2. Vertaal deze vraag ook naar het NEDERLANDS (voor het logboek).
+                3. Zoek het antwoord in de brontekst.
+                4. Bepaal: Staat het antwoord in de tekst? (Ja/Nee).
+                5. Vertaal het antwoord naar de taal van de spreker.
                 
                 REGELS:
                 - GEVONDEN? -> Geef een vriendelijke uitleg (2-3 zinnen, A2 niveau).
@@ -146,8 +161,9 @@ else:
                 
                 OUTPUT FORMAAT (JSON):
                 {{
-                    "taal_code": "nl",
-                    "vraag_transcriptie": "Schrijf hier de vraag",
+                    "taal_code": "code (bv: en, ar, fr)",
+                    "vraag_orig": "De vraag in de originele taal",
+                    "vraag_nl": "De vraag vertaald naar het Nederlands",
                     "antwoord_gevonden": true of false,
                     "antwoord_tekst": "Het antwoord voor de cursist"
                 }}
@@ -164,13 +180,15 @@ else:
                 data = json.loads(ruwe_json)
                 
                 taal = data.get("taal_code", "nl")
-                vraag = data.get("vraag_transcriptie", "")
+                vraag_orig = data.get("vraag_orig", "")
+                vraag_nl = data.get("vraag_nl", "")
                 gevonden = data.get("antwoord_gevonden", True)
                 antwoord = data.get("antwoord_tekst", "Sorry, ik begreep het niet.")
                 
                 # LOGICA: Opslaan als niet gevonden
+                # We sturen nu ZOWEL origineel ALS vertaling naar de functie
                 if gevonden is False:
-                    log_gemiste_vraag(vraag, taal)
+                    log_gemiste_vraag(vraag_orig, vraag_nl, taal)
 
                 # Resultaat tonen
                 st.success(f"🗣️ **Antwoord:** {antwoord}")
