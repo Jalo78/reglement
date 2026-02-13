@@ -6,6 +6,7 @@ from gtts import gTTS
 import PyPDF2
 import json
 import tempfile
+import re # Nodig voor slimme tekstvervanging
 
 # ---------------------------------------------------------
 # CONFIGURATIE & VEILIGHEID
@@ -47,6 +48,24 @@ def laad_pdf_automatisch():
     else:
         return None
 
+def repareer_uitspraak(tekst, taal):
+    """
+    Deze functie repareert specifieke woorden die Google verkeerd uitspreekt.
+    Dit is veiliger dan de AI het te laten doen.
+    """
+    if taal == 'nl':
+        # We maken van 'les' -> 'less' (zodat hij niet 'lee' zegt)
+        # We gebruiken 'replace' voor de zekerheid op hele woorden
+        tekst = tekst.replace(" les ", " less ")
+        tekst = tekst.replace(" les.", " less.")
+        tekst = tekst.replace(" les,", " less,")
+        tekst = tekst.replace(" Les ", " Less ")
+        
+        # Voeg hier later eventueel andere woorden toe
+        # tekst = tekst.replace(" wifi ", " waaifaai ") 
+        
+    return tekst
+
 # ---------------------------------------------------------
 # DE APPLICATIE
 # ---------------------------------------------------------
@@ -71,8 +90,7 @@ else:
                 # Model aanroepen
                 model = genai.GenerativeModel("gemini-2.5-flash")
                 
-                # --- DE MAGISCHE INSTRUCTIES (PROMPT) ---
-                # Hier vertellen we de AI hoe hij met uitspraak moet omgaan.
+                # De Prompt - TERUG NAAR SIMPEL
                 prompt = f"""
                 CONTEXT (BRONTEKST):
                 {reglement_tekst}
@@ -80,24 +98,18 @@ else:
                 JOUW TAAK:
                 1. Luister naar de audio.
                 2. Detecteer de taal.
-                3. Zoek het antwoord in de brontekst.
+                3. Zoek het antwoord in de Nederlandse brontekst.
                 4. Vertaal het antwoord naar de taal van de spreker.
                 
-                CRUCIAAL VOOR UITSPRAAK (FONETISCH):
-                Computerstemmen maken fouten. Jij moet dat corrigeren in de 'luister_tekst'.
-                Schrijf de 'luister_tekst' precies zoals je het moet UITSPREKEN.
-                
-                Voorbeelden van correcties die jij moet toepassen:
-                - Nederlands woord 'les' -> Schrijf 'less' (anders zegt hij 'lee').
-                - Nederlands woord 'PC' -> Schrijf 'pee see'.
-                - Engels woord 'WiFi' -> Schrijf 'wai fai' (als de taal anders is).
-                - Frans leenwoord in NL -> Schrijf het fonetisch.
+                BELANGRIJKE REGELS:
+                - Antwoord in de taal van de vraag.
+                - Houd het kort en simpel (Niveau A1).
+                - Geen rare tekens, gewoon normale zinnen.
                 
                 OUTPUT FORMAAT (JSON):
                 {{
                     "taal_code": "nl",
-                    "lees_tekst": "Hier de nette tekst met juiste spelling (bijv: De les begint).",
-                    "luister_tekst": "Hier de fonetische tekst voor de computer (bijv: De less begint)."
+                    "antwoord": "Hier het antwoord in normale spelling."
                 }}
                 """
 
@@ -115,21 +127,22 @@ else:
                 data = json.loads(ruwe_json)
                 
                 taal = data.get("taal_code", "nl")
-                tekst_scherm = data.get("lees_tekst", "Sorry, ik begreep het niet.")
-                tekst_audio = data.get("luister_tekst", tekst_scherm)
+                antwoord = data.get("antwoord", "Sorry, ik begreep het niet.")
                 
                 # 3. Resultaat Tonen
-                st.success(f"🗣️ **Antwoord:** {tekst_scherm}")
+                st.success(f"🗣️ **Antwoord:** {antwoord}")
                 
-                # (Optioneel: Laat zien wat hij stiekem leest om te testen)
-                # st.caption(f"Debug (Audio leest): {tekst_audio}")
+                # --- DE REPARATIE ---
+                # Hier roepen we de functie aan die 'les' vervangt door 'less'
+                spraak_tekst = repareer_uitspraak(antwoord, taal)
                 
                 # 4. Audio Genereren en Afspelen
-                tts = gTTS(text=tekst_audio, lang=taal)
+                tts = gTTS(text=spraak_tekst, lang=taal)
                 
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
                     tts.save(fp.name)
                     st.audio(fp.name, format="audio/mp3", autoplay=True)
                     
             except Exception as e:
+                # Laat de echte fout zien als het misgaat
                 st.error(f"Technische foutmelding: {e}")
