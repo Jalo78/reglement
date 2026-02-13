@@ -135,6 +135,4 @@ else:
                     st.audio(fp.name, format="audio/mp3", autoplay=True)
                     
             except Exception as e:
-                st.error("Er ging iets mis bij de verwerking.")
-                # Voor debugging (alleen aanzetten als je zelf test):
-                # st.write(e)
+                st.error(f"De technische fout is: {e}")
