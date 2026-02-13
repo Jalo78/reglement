@@ -11,33 +11,28 @@ import tempfile
 # CONFIGURATIE & VEILIGHEID
 # ---------------------------------------------------------
 
-# Pagina instellingen (Titel in browser tabblad, icoontje)
 st.set_page_config(page_title="Ligo Assistent", page_icon="🏫")
 
-# Waarschuwingen onderdrukken voor een schone log
+# Waarschuwingen onderdrukken
 os.environ["GRPC_VERBOSITY"] = "ERROR"
 warnings.filterwarnings("ignore")
 
 # --- VEILIGE SLEUTEL TOEGANG ---
-# Hier controleren we of de sleutel in de veilige kluis zit.
 if "GOOGLE_API_KEY" in st.secrets:
     api_key = st.secrets["GOOGLE_API_KEY"]
     genai.configure(api_key=api_key)
 else:
-    # Als er geen sleutel is (bijv. lokaal zonder secrets.toml), stop de app.
-    st.error("⛔ CRITICALE FOUT: Geen API-sleutel gevonden.")
-    st.info("Ben je de beheerder? Voeg 'GOOGLE_API_KEY' toe aan de Streamlit Secrets.")
-    st.stop() # Stop de app hier, ga niet verder.
+    st.error("⛔ CRITICALE FOUT: Geen API-sleutel gevonden in Secrets.")
+    st.stop()
 
 # ---------------------------------------------------------
 # FUNCTIES
 # ---------------------------------------------------------
 
-@st.cache_data # Dit zorgt dat we de PDF maar 1x hoeven te lezen (sneller!)
+@st.cache_data
 def laad_pdf_automatisch():
     """Zoekt en leest reglement.pdf in dezelfde map."""
     bestand_naam = "reglement.pdf"
-    
     if os.path.exists(bestand_naam):
         try:
             with open(bestand_naam, "rb") as f:
@@ -53,7 +48,7 @@ def laad_pdf_automatisch():
         return None
 
 # ---------------------------------------------------------
-# DE APPLICATIE (UI)
+# DE APPLICATIE
 # ---------------------------------------------------------
 
 st.title("🏫 Vraag het aan het Centrum")
@@ -64,9 +59,7 @@ reglement_tekst = laad_pdf_automatisch()
 
 if reglement_tekst is None:
     st.error("⚠️ Oeps! Het bestand 'reglement.pdf' ontbreekt.")
-    st.warning("Upload 'reglement.pdf' naar je GitHub map naast dit bestand.")
 else:
-    # Als de PDF er is, tonen we een scheidingslijn en de microfoon
     st.divider()
     
     # 2. De Audio Knop
@@ -75,32 +68,36 @@ else:
     if audio_opname:
         with st.spinner("Even luisteren en vertalen... 🧠"):
             try:
-                # We gebruiken het snelle Flash model
+                # Model aanroepen
                 model = genai.GenerativeModel("gemini-2.5-flash")
                 
-                # De 'System Prompt' - De strenge instructies voor de AI
+                # --- DE MAGISCHE INSTRUCTIES (PROMPT) ---
+                # Hier vertellen we de AI hoe hij met uitspraak moet omgaan.
                 prompt = f"""
                 CONTEXT (BRONTEKST):
                 {reglement_tekst}
                 
                 JOUW TAAK:
-                Je bent een behulpzame assistent voor laaggeletterde cursisten.
-                1. Luister naar de audio input.
-                2. Detecteer de taal van de spreker.
-                3. Zoek het antwoord in de Nederlandse brontekst.
+                1. Luister naar de audio.
+                2. Detecteer de taal.
+                3. Zoek het antwoord in de brontekst.
                 4. Vertaal het antwoord naar de taal van de spreker.
                 
-                BELANGRIJKE REGELS:
-                - Antwoord altijd in de taal van de vraag (Engels -> Engels, Arabisch -> Arabisch).
-                - Houd het antwoord kort, vriendelijk en simpel (Niveau A1/A2).
-                - Als het antwoord niet in de tekst staat, zeg: "Dat weet ik niet, vraag het aan je leerkracht."
+                CRUCIAAL VOOR UITSPRAAK (FONETISCH):
+                Computerstemmen maken fouten. Jij moet dat corrigeren in de 'luister_tekst'.
+                Schrijf de 'luister_tekst' precies zoals je het moet UITSPREKEN.
+                
+                Voorbeelden van correcties die jij moet toepassen:
+                - Nederlands woord 'les' -> Schrijf 'less' (anders zegt hij 'lee').
+                - Nederlands woord 'PC' -> Schrijf 'pee see'.
+                - Engels woord 'WiFi' -> Schrijf 'wai fai' (als de taal anders is).
+                - Frans leenwoord in NL -> Schrijf het fonetisch.
                 
                 OUTPUT FORMAAT (JSON):
-                Geef ALLEEN een JSON object terug met deze velden:
                 {{
-                    "taal_code": "de 2-letterige taalcode (bijv: nl, en, ar, fr)",
-                    "lees_tekst": "Het antwoord in correcte spelling voor op het scherm",
-                    "luister_tekst": "Het antwoord fonetisch geschreven voor de computerstem (zodat uitspraak klopt)"
+                    "taal_code": "nl",
+                    "lees_tekst": "Hier de nette tekst met juiste spelling (bijv: De les begint).",
+                    "luister_tekst": "Hier de fonetische tekst voor de computer (bijv: De less begint)."
                 }}
                 """
 
@@ -113,10 +110,8 @@ else:
                     {"mime_type": "audio/wav", "data": audio_bytes}
                 ])
                 
-                # JSON Opschonen (soms zet AI er ```json ... ``` omheen)
+                # JSON verwerken
                 ruwe_json = response.text.replace('```json', '').replace('```', '').strip()
-                
-                # Omzetten naar Python data
                 data = json.loads(ruwe_json)
                 
                 taal = data.get("taal_code", "nl")
@@ -126,13 +121,15 @@ else:
                 # 3. Resultaat Tonen
                 st.success(f"🗣️ **Antwoord:** {tekst_scherm}")
                 
+                # (Optioneel: Laat zien wat hij stiekem leest om te testen)
+                # st.caption(f"Debug (Audio leest): {tekst_audio}")
+                
                 # 4. Audio Genereren en Afspelen
                 tts = gTTS(text=tekst_audio, lang=taal)
                 
-                # Tijdelijk bestand aanmaken
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
                     tts.save(fp.name)
                     st.audio(fp.name, format="audio/mp3", autoplay=True)
                     
             except Exception as e:
-                st.error(f"De technische fout is: {e}")
+                st.error(f"Technische foutmelding: {e}")
