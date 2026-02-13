@@ -5,7 +5,7 @@ import google.generativeai as genai
 from gtts import gTTS
 import PyPDF2
 import json
-import tempfile
+import io # <--- NIEUW: Nodig voor iPhone geheugen-stream
 
 # ---------------------------------------------------------
 # CONFIGURATIE & VEILIGHEID
@@ -25,12 +25,12 @@ else:
     st.error("⛔ CRITICALE FOUT: Geen API-sleutel gevonden in Secrets.")
     st.stop()
 
-# --- SESSIE STATUS (Het geheugen voor de reset-knop) ---
+# --- SESSIE STATUS (Reset knop) ---
 if 'vraag_teller' not in st.session_state:
     st.session_state.vraag_teller = 0
 
 def reset_app():
-    """Deze functie wordt uitgevoerd als je op de reset knop drukt"""
+    """Verhoogt teller en wist sessie"""
     st.session_state.vraag_teller += 1
 
 # ---------------------------------------------------------
@@ -81,7 +81,6 @@ else:
     st.divider()
     
     # 2. De Audio Knop (Met dynamische key!)
-    # Door de 'key' te veranderen (vraag_teller), wordt de widget leeggemaakt.
     audio_opname = st.audio_input(
         "Start opname 🎤", 
         key=f"audio_recorder_{st.session_state.vraag_teller}"
@@ -92,7 +91,7 @@ else:
             try:
                 model = genai.GenerativeModel("gemini-2.5-flash")
                 
-                # --- PROMPT (Volledig & Vriendelijk) ---
+                # --- PROMPT ---
                 prompt = f"""
                 CONTEXT (BRONTEKST):
                 {reglement_tekst}
@@ -135,19 +134,20 @@ else:
                 # 3. Resultaat Tonen
                 st.success(f"🗣️ **Antwoord:** {antwoord}")
                 
-                # --- DE UITSPRAAK REPARATIE ---
+                # --- UITSPRAAK REPARATIE ---
                 spraak_tekst = repareer_uitspraak(antwoord, taal)
                 
-                # 4. Audio Genereren en Afspelen
+                # 4. Audio Genereren (iPhone Fix)
+                # We maken een 'in-memory' bestand aan
+                mp3_fp = io.BytesIO()
                 tts = gTTS(text=spraak_tekst, lang=taal)
+                tts.write_to_fp(mp3_fp)
                 
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
-                    tts.save(fp.name)
-                    st.audio(fp.name, format="audio/mp3", autoplay=True)
+                # We sturen de bytes direct naar de speler
+                st.audio(mp3_fp, format="audio/mpeg", autoplay=True)
                 
                 # 5. KNOP OM OPNIEUW TE BEGINNEN
-                st.write("") # Witregel
-                # Als je hierop drukt, wordt 'reset_app' uitgevoerd, verhoogt de teller, en reset de microfoon.
+                st.write("") 
                 st.button("🔄 Stel een nieuwe vraag", on_click=reset_app)
                     
             except Exception as e:
