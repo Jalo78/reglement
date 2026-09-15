@@ -24,7 +24,7 @@ else:
     st.error("⛔ CRITICALE FOUT: Geen API-sleutel gevonden in Secrets.")
     st.stop()
 
-# 2. Admin Wachtwoord Check (standaard 'admin' als je niks instelt)
+# 2. Admin Wachtwoord Check
 ADMIN_WW = st.secrets.get("ADMIN_WACHTWOORD", "admin")
 
 # Sessie status voor de reset knop
@@ -39,19 +39,25 @@ def reset_app():
 # ---------------------------------------------------------
 
 @st.cache_data
-def laad_pdf_automatisch():
-    bestand_naam = "reglement.pdf"
-    if os.path.exists(bestand_naam):
-        try:
-            with open(bestand_naam, "rb") as f:
-                reader = PyPDF2.PdfReader(f)
-                tekst = ""
-                for page in reader.pages:
-                    tekst += page.extract_text()
-            return tekst
-        except Exception:
-            return None
-    return None
+def laad_documenten_automatisch():
+    """Zoekt en leest zowel reglement.pdf als kalender.pdf"""
+    bestanden = ["reglement.pdf", "kalender.pdf"]
+    alle_tekst = ""
+    
+    for bestand_naam in bestanden:
+        if os.path.exists(bestand_naam):
+            try:
+                with open(bestand_naam, "rb") as f:
+                    reader = PyPDF2.PdfReader(f)
+                    alle_tekst += f"\n--- INHOUD VAN {bestand_naam.upper()} ---\n"
+                    for page in reader.pages:
+                        alle_tekst += page.extract_text() + "\n"
+            except Exception as e:
+                st.warning(f"Fout bij lezen van {bestand_naam}: {e}")
+        else:
+            st.warning(f"⚠️ Bestand '{bestand_naam}' ontbreekt in de map.")
+            
+    return alle_tekst if alle_tekst.strip() else None
 
 def repareer_uitspraak(tekst, taal):
     if taal == 'nl':
@@ -60,10 +66,7 @@ def repareer_uitspraak(tekst, taal):
     return tekst
 
 def log_gemiste_vraag(vraag_orig, vraag_nl, taal):
-    """Schrijft de vraag + vertaling weg naar CSV"""
     bestand = "gemiste_vragen.csv"
-    
-    # Hier maken we de rij met 4 kolommen
     nieuwe_data = pd.DataFrame([{
         "Datum": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "Taal": taal,
@@ -72,16 +75,11 @@ def log_gemiste_vraag(vraag_orig, vraag_nl, taal):
     }])
     
     if os.path.exists(bestand):
-        # We voegen toe aan bestaand bestand
-        # Let op: als het oude bestand minder kolommen heeft, geeft dit een fout.
-        # Daarom best eerst wissen.
         try:
             nieuwe_data.to_csv(bestand, mode='a', header=False, index=False)
         except:
-            # Als het misgaat (bijv oude versie), overschrijven we het
             nieuwe_data.to_csv(bestand, mode='w', header=True, index=False)
     else:
-        # Nieuw bestand maken
         nieuwe_data.to_csv(bestand, mode='w', header=True, index=False)
 
 # ---------------------------------------------------------
@@ -101,7 +99,7 @@ with st.sidebar:
         if os.path.exists("gemiste_vragen.csv"):
             try:
                 df = pd.read_csv("gemiste_vragen.csv")
-                st.dataframe(df) # Toon tabel
+                st.dataframe(df)
                 
                 csv_data = df.to_csv(index=False).encode('utf-8')
                 st.download_button(
@@ -115,7 +113,7 @@ with st.sidebar:
                     os.remove("gemiste_vragen.csv")
                     st.rerun()
             except:
-                st.error("Het logboek is beschadigd of verouderd.")
+                st.error("Het logboek is beschadigd.")
                 if st.button("🗑️ Reset logboek"):
                     os.remove("gemiste_vragen.csv")
                     st.rerun()
@@ -126,10 +124,10 @@ with st.sidebar:
 st.title("🏫 Vraag het aan het Centrum")
 st.write("Druk op de knop, spreek je vraag in en luister naar het antwoord.")
 
-reglement_tekst = laad_pdf_automatisch()
+documenten_tekst = laad_documenten_automatisch()
 
-if reglement_tekst is None:
-    st.error("⚠️ Oeps! Het bestand 'reglement.pdf' ontbreekt.")
+if documenten_tekst is None:
+    st.error("⚠️ Geen documenten gevonden. Zorg voor reglement.pdf en kalender.pdf.")
 else:
     st.divider()
     
@@ -143,21 +141,27 @@ else:
             try:
                 model = genai.GenerativeModel("gemini-2.5-flash")
                 
-                # --- AANGEPASTE PROMPT MET VERTALING ---
+                # We halen de datum van vandaag op (inclusief weekdag)
+                vandaag_str = datetime.now().strftime("%A %d %B %Y (tijd: %H:%M)")
+                
+                # --- AANGEPASTE PROMPT MET DATUM EN MULTIPLE DOCS ---
                 prompt = f"""
-                CONTEXT (BRONTEKST):
-                {reglement_tekst}
+                HUIDIGE DATUM EN TIJD:
+                Vandaag is het {vandaag_str}. Gebruik dit als iemand vraagt naar 'vandaag', 'morgen', of een specifieke datum.
+                
+                CONTEXT (BRONTEKSTEN):
+                {documenten_tekst}
                 
                 JOUW TAAK:
                 1. Luister naar de audio en schrijf de vraag uit (transcriptie).
                 2. Vertaal deze vraag ook naar het NEDERLANDS (voor het logboek).
-                3. Zoek het antwoord in de brontekst.
-                4. Bepaal: Staat het antwoord in de tekst? (Ja/Nee).
+                3. Zoek het antwoord in de bronteksten (reglement of kalender).
+                4. Bepaal: Staat het antwoord in de teksten of kun je het afleiden uit de kalender? (Ja/Nee).
                 5. Vertaal het antwoord naar de taal van de spreker.
                 
                 REGELS:
                 - GEVONDEN? -> Geef een vriendelijke uitleg (2-3 zinnen, A2 niveau).
-                - NIET GEVONDEN? -> Zeg "Dat staat niet in het reglement." EN voeg toe: "Vraag het aan je klasleerkracht of ga naar het onthaal." (Vertaal dit!).
+                - NIET GEVONDEN? -> Zeg "Dat staat niet in de informatie." EN voeg toe: "Vraag het aan je klasleerkracht of ga naar het onthaal." (Vertaal dit!).
                 
                 OUTPUT FORMAAT (JSON):
                 {{
@@ -185,22 +189,17 @@ else:
                 gevonden = data.get("antwoord_gevonden", True)
                 antwoord = data.get("antwoord_tekst", "Sorry, ik begreep het niet.")
                 
-                # LOGICA: Opslaan als niet gevonden
-                # We sturen nu ZOWEL origineel ALS vertaling naar de functie
                 if gevonden is False:
                     log_gemiste_vraag(vraag_orig, vraag_nl, taal)
 
-                # Resultaat tonen
                 st.success(f"🗣️ **Antwoord:** {antwoord}")
                 
-                # Audio afspelen
                 spraak_tekst = repareer_uitspraak(antwoord, taal)
                 mp3_fp = io.BytesIO()
                 tts = gTTS(text=spraak_tekst, lang=taal)
                 tts.write_to_fp(mp3_fp)
                 st.audio(mp3_fp, format="audio/mpeg", autoplay=True)
                 
-                # Reset knop
                 st.write("") 
                 st.button("🔄 Stel een nieuwe vraag", on_click=reset_app)
                     
