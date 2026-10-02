@@ -6,7 +6,7 @@ from gtts import gTTS
 import PyPDF2
 import json
 import io
-import pandas as pd
+import requests
 from datetime import datetime
 
 # ---------------------------------------------------------
@@ -24,10 +24,9 @@ else:
     st.error("⛔ CRITICALE FOUT: Geen API-sleutel gevonden in Secrets.")
     st.stop()
 
-# 2. Admin Wachtwoord Check
-ADMIN_WW = st.secrets.get("ADMIN_WACHTWOORD", "admin")
+# 2. Google Sheet URL Check
+WEBHOOK_URL = st.secrets.get("GOOGLE_SHEET_URL", "")
 
-# Sessie status voor de reset knop
 if 'vraag_teller' not in st.session_state:
     st.session_state.vraag_teller = 0
 
@@ -40,7 +39,6 @@ def reset_app():
 
 @st.cache_data
 def laad_documenten_automatisch():
-    """Zoekt en leest zowel reglement.pdf als kalender.pdf"""
     bestanden = ["reglement.pdf", "kalender.pdf"]
     alle_tekst = ""
     
@@ -66,61 +64,27 @@ def repareer_uitspraak(tekst, taal):
     return tekst
 
 def log_gemiste_vraag(vraag_orig, vraag_nl, taal):
-    bestand = "gemiste_vragen.csv"
-    nieuwe_data = pd.DataFrame([{
-        "Datum": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "Taal": taal,
-        "Originele Vraag": vraag_orig,
-        "Vraag in NL": vraag_nl
-    }])
+    """Stuurt de vraag direct naar jouw Google Sheet"""
+    if not WEBHOOK_URL:
+        return
+        
+    data = {
+        "datum": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "taal": taal,
+        "vraag_orig": vraag_orig,
+        "vraag_nl": vraag_nl
+    }
     
-    if os.path.exists(bestand):
-        try:
-            nieuwe_data.to_csv(bestand, mode='a', header=False, index=False)
-        except:
-            nieuwe_data.to_csv(bestand, mode='w', header=True, index=False)
-    else:
-        nieuwe_data.to_csv(bestand, mode='w', header=True, index=False)
+    try:
+        # Verstuur data op de achtergrond naar Google
+        requests.post(WEBHOOK_URL, json=data)
+    except Exception as e:
+        pass # Als het loggen faalt, mag de app niet crashen voor de cursist
 
 # ---------------------------------------------------------
 # DE APPLICATIE
 # ---------------------------------------------------------
 
-# --- ZIJBALK (DOCENTEN) ---
-with st.sidebar:
-    st.header("🔐 Docenten Login")
-    invoer_ww = st.text_input("Wachtwoord", type="password")
-    
-    if invoer_ww == ADMIN_WW:
-        st.success("Toegang verleend ✅")
-        st.divider()
-        st.subheader("📋 Logboek Gemiste Vragen")
-        
-        if os.path.exists("gemiste_vragen.csv"):
-            try:
-                df = pd.read_csv("gemiste_vragen.csv")
-                st.dataframe(df)
-                
-                csv_data = df.to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    "📥 Download Excel (CSV)",
-                    csv_data,
-                    "gemiste_vragen.csv",
-                    "text/csv"
-                )
-                
-                if st.button("🗑️ Wis logboek"):
-                    os.remove("gemiste_vragen.csv")
-                    st.rerun()
-            except:
-                st.error("Het logboek is beschadigd.")
-                if st.button("🗑️ Reset logboek"):
-                    os.remove("gemiste_vragen.csv")
-                    st.rerun()
-        else:
-            st.info("Nog geen gemiste vragen.")
-
-# --- HOOFDSCHERM ---
 st.title("🏫 Vraag het aan het Centrum")
 st.write("Druk op de knop, spreek je vraag in en luister naar het antwoord.")
 
@@ -141,10 +105,8 @@ else:
             try:
                 model = genai.GenerativeModel("gemini-2.5-flash")
                 
-                # We halen de datum van vandaag op (inclusief weekdag)
                 vandaag_str = datetime.now().strftime("%A %d %B %Y (tijd: %H:%M)")
                 
-                # --- AANGEPASTE PROMPT MET DATUM EN MULTIPLE DOCS ---
                 prompt = f"""
                 HUIDIGE DATUM EN TIJD:
                 Vandaag is het {vandaag_str}. Gebruik dit als iemand vraagt naar 'vandaag', 'morgen', of een specifieke datum.
