@@ -96,7 +96,7 @@ else:
     st.divider()
     
     audio_opname = st.audio_input(
-        "Klik hieronder en druk nog een keer na je vraag", 
+        "Klik hieronder om te starten, klik daarna om te stoppen", 
         key=f"audio_recorder_{st.session_state.vraag_teller}"
     )
 
