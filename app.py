@@ -85,8 +85,8 @@ def log_gemiste_vraag(vraag_orig, vraag_nl, taal):
 # DE APPLICATIE
 # ---------------------------------------------------------
 
-st.title("🏫 Vraag het aan het Centrum")
-st.write("Druk op de knop, spreek je vraag in en luister naar het antwoord.")
+st.title("🏫 Vraag het aan het Ligo")
+st.write("Druk op de microfoon, spreek je vraag in en luister naar het antwoord.")
 
 documenten_tekst = laad_documenten_automatisch()
 
@@ -96,7 +96,7 @@ else:
     st.divider()
     
     audio_opname = st.audio_input(
-        "Start opname 🎤", 
+        "Klik hieronder en druk nog een keer na je vraag", 
         key=f"audio_recorder_{st.session_state.vraag_teller}"
     )
 
