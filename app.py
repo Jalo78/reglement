@@ -85,7 +85,7 @@ def log_gemiste_vraag(vraag_orig, vraag_nl, taal):
 # DE APPLICATIE
 # ---------------------------------------------------------
 
-st.title("🏫 Vraag het aan het Ligo")
+st.title("🏫 Vraag het aan Ligo")
 st.write("Druk op de microfoon, spreek je vraag in en luister naar het antwoord.")
 
 documenten_tekst = laad_documenten_automatisch()
